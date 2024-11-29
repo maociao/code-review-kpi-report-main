@@ -1,0 +1,61 @@
+name: Code Review Report
+
+on:
+  schedule:
+    - cron: '0 8 1 * *'
+  
+  workflow_dispatch:
+    inputs:
+      team_slug:
+        description: 'Team slug to analyze'
+        required: true
+        default: 'mulesoft-development-team'
+      months:
+        description: 'Number of months to analyze'
+        required: true
+        default: '1'
+
+# Only need permissions for issue creation
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests python-dotenv prettytable
+
+    - name: Generate report
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_PAT }}  # Use PAT instead of default token
+        GITHUB_ORG: 'sappi'
+      run: |
+        python code-review-kpi-report.py ${{ github.event.inputs.team_slug || 'mulesoft-development-team' }} ${{ github.event.inputs.months || '1' }} --table > report.txt
+
+    - name: Create issue with report
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('report.txt', 'utf8');
+          const date = new Date().toISOString().split('T')[0];
+          
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Code Review Report - ${date}`,
+            body: '```\n' + report + '\n```'
+          });
